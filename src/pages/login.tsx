@@ -1,3 +1,4 @@
+import { type GetServerSideProps } from "next";
 import { signIn } from "next-auth/react";
 import { NextSeo } from "next-seo";
 import { useState } from "react";
@@ -9,13 +10,17 @@ import {
   CardHeader,
   CardTitle,
 } from "~/components/ui/card";
+import { getServerAuthSession } from "~/server/auth";
 
 export default function LoginForm() {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   return (
     <>
       <NextSeo title="Login" />
-      <div className="flex h-screen w-full items-center justify-center">
+      <div className="relative flex h-screen w-full items-center justify-center p-4">
+        <div className="absolute left-4 top-4 font-display text-2xl">
+          Autocheckin
+        </div>
         <Card className="w-full max-w-sm">
           <CardHeader>
             <CardTitle className="font-display text-2xl">Login</CardTitle>
@@ -48,3 +53,16 @@ export default function LoginForm() {
     </>
   );
 }
+
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  const session = await getServerAuthSession(context);
+  if (session) {
+    return {
+      redirect: {
+        destination: "/home",
+        permanent: false,
+      },
+    };
+  }
+  return { props: {} };
+};

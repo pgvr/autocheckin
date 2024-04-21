@@ -1,4 +1,5 @@
 import { CalendarCheck, CalendarClock, EllipsisVertical } from "lucide-react";
+import { type GetServerSideProps } from "next";
 import { NextSeo } from "next-seo";
 import Link from "next/link";
 import { useState } from "react";
@@ -28,6 +29,7 @@ import { Spinner } from "~/components/ui/spinner";
 import { UpdateContactDialog } from "~/components/update-contact-dialog";
 import { UserNav } from "~/components/user-menu";
 import { FrequencyText } from "~/lib/utils";
+import { getServerAuthSession } from "~/server/auth";
 import { api } from "~/utils/api";
 
 export default function Home() {
@@ -48,7 +50,7 @@ export default function Home() {
       <NextSeo title="Home" />
       <div className="container p-4">
         <div className="mb-10 flex items-center justify-between">
-          <div className="font-display text-2xl">Checkin</div>
+          <div className="font-display text-2xl">Autocheckin</div>
           <UserNav />
         </div>
 
@@ -200,3 +202,16 @@ export default function Home() {
     </>
   );
 }
+
+export const getServerSideProps: GetServerSideProps = async (context) => {
+  const session = await getServerAuthSession(context);
+  if (!session) {
+    return {
+      redirect: {
+        destination: "/login",
+        permanent: false,
+      },
+    };
+  }
+  return { props: {} };
+};
