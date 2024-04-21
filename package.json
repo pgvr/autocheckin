@@ -9,6 +9,8 @@
     "db:studio": "prisma studio",
     "dev": "next dev",
     "postinstall": "prisma generate",
+    "migrate:deploy": "prisma migrate deploy",
+    "migrate:dev": "prisma migrate dev",
     "lint": "next lint",
     "start": "next start",
     "inngest": "npx inngest-cli@latest dev"
