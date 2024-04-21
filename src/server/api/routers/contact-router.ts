@@ -206,7 +206,7 @@ export const contactRouter = createTRPCRouter({
         });
       }
 
-      await scheduleNextBooking({
+      const nextBooking = await scheduleNextBooking({
         contactId: contact.id,
         userName: ctx.session.user.name ?? ctx.session.user.email ?? "",
         userEmail: ctx.session.user.email ?? "",
@@ -214,6 +214,18 @@ export const contactRouter = createTRPCRouter({
         apiKey: ctx.session.user.calApiKey,
         frequency: contact.checkInFrequency,
       });
+      if (nextBooking) {
+        await ctx.db.booking.create({
+          data: {
+            userId: ctx.session.user.id,
+            calId: nextBooking.id,
+            calUid: nextBooking.uid,
+            startTime: nextBooking.startTime,
+            endTime: nextBooking.endTime,
+            contactId: contact.id,
+          },
+        });
+      }
     }),
   delete: protectedProcedure
     .input(
