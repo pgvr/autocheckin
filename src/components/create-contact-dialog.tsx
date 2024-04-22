@@ -28,8 +28,6 @@ import { Form, useZodForm } from "./ui/form/form";
 import { FormInput } from "./ui/form/form-input";
 import { CheckInFrequency } from "@prisma/client";
 import { FormSelect } from "./ui/form/form-select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { Info } from "lucide-react";
 
 export function CreateContactDialog({
   children: trigger,
