@@ -150,6 +150,9 @@ function ContactForm({
           { label: "Weekly-ish", value: CheckInFrequency.WEEKLY },
           { label: "Bi-weekly-ish", value: CheckInFrequency.BIWEEKLY },
           { label: "Monthly-ish", value: CheckInFrequency.MONTHLY },
+          { label: "Quarterly-ish", value: CheckInFrequency.QUARTERLY },
+          { label: "Bi-yearly-ish", value: CheckInFrequency.BIYEARLY },
+          { label: "Yearly-ish", value: CheckInFrequency.YEARLY },
         ]}
       />
 

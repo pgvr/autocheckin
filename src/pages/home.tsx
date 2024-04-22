@@ -115,7 +115,11 @@ export default function Home() {
                       <CardTitle className="flex items-center gap-4">
                         <Avatar className="h-8 w-8">
                           <AvatarImage
-                            src={contact.calAvatarUrl ?? ""}
+                            src={
+                              contact.calAvatarUrl
+                                ? `https://cal.com/${contact.calAvatarUrl}`
+                                : ""
+                            }
                             alt={contact.name ?? "Avatar"}
                           />
                           <AvatarFallback className="text-base">

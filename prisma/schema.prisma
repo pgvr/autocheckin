@@ -18,6 +18,9 @@ enum CheckInFrequency {
   WEEKLY
   BIWEEKLY
   MONTHLY
+  QUARTERLY
+  BIYEARLY
+  YEARLY
 }
 
 model Contact {

@@ -128,27 +128,35 @@ export async function scheduleNextBooking({
   const now = new Date();
   let start;
   let end;
-  const dates: string[] = [];
 
   if (frequency === "WEEKLY") {
-    const dayRange = [6, 7, 8, 9, 10];
-    dates.push(...dayRange.map((day) => addDays(now, day).toISOString()));
     start = addDays(now, 6).toISOString();
     end = addDays(now, 10).toISOString();
   }
 
   if (frequency === "BIWEEKLY") {
-    const dayRange = [12, 13, 14, 15, 16, 17, 18];
-    dates.push(...dayRange.map((day) => addDays(now, day).toISOString()));
     start = addDays(now, 12).toISOString();
     end = addDays(now, 18).toISOString();
   }
 
   if (frequency === "MONTHLY") {
-    const dayRange = [28, 29, 30, 31, 32, 33, 34];
-    dates.push(...dayRange.map((day) => addDays(now, day).toISOString()));
     start = addDays(now, 28).toISOString();
     end = addDays(now, 34).toISOString();
+  }
+
+  if (frequency === "QUARTERLY") {
+    start = addDays(now, 80).toISOString();
+    end = addDays(now, 100).toISOString();
+  }
+
+  if (frequency === "BIYEARLY") {
+    start = addDays(now, 160).toISOString();
+    end = addDays(now, 200).toISOString();
+  }
+
+  if (frequency === "YEARLY") {
+    start = addDays(now, 340).toISOString();
+    end = addDays(now, 390).toISOString();
   }
 
   if (!start || !end) {

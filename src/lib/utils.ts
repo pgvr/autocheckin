@@ -32,6 +32,9 @@ export const FrequencyText: Record<CheckInFrequency, string> = {
   WEEKLY: "Weekly-ish",
   BIWEEKLY: "Bi-weekly-ish",
   MONTHLY: "Monthly-ish",
+  QUARTERLY: "Quarterly-ish",
+  BIYEARLY: "Bi-yearly-ish",
+  YEARLY: "Yearly-ish",
 };
 
 export function getRandomNumberBetween(min: number, max: number): number {
