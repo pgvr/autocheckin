@@ -17,6 +17,7 @@ const config = {
     locales: ["en"],
     defaultLocale: "en",
   },
+  skipTrailingSlashRedirect: true,
 };
 
 export default config;

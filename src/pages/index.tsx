@@ -31,7 +31,7 @@ export default function Home() {
           </Link>
         </div>
 
-        <Image src={HeroImage} alt="Hero" />
+        <Image src={HeroImage} alt="Hero" priority />
       </div>
     </div>
   );
