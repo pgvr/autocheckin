@@ -1,7 +1,7 @@
 /* eslint-disable react/display-name */
 import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
-import { Check, ChevronRight, Circle } from "lucide-react";
+import { Check, ChevronRight, Circle, type LucideIcon } from "lucide-react";
 
 import { cn } from "~/lib/utils";
 
@@ -72,8 +72,9 @@ const DropdownMenuItem = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & {
     inset?: boolean;
+    Icon?: LucideIcon;
   }
->(({ className, inset, ...props }, ref) => (
+>(({ className, inset, Icon, children, ...props }, ref) => (
   <DropdownMenuPrimitive.Item
     ref={ref}
     className={cn(
@@ -82,7 +83,12 @@ const DropdownMenuItem = React.forwardRef<
       className,
     )}
     {...props}
-  />
+  >
+    <>
+      {Icon && <Icon className="mr-2 h-4 w-4 text-muted-foreground" />}
+      {children}
+    </>
+  </DropdownMenuPrimitive.Item>
 ));
 
 const DropdownMenuCheckboxItem = React.forwardRef<

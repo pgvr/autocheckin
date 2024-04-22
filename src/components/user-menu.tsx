@@ -11,6 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
+import { LogOut, MessageCircleHeart, ScrollText } from "lucide-react";
 
 export function UserNav() {
   const { data } = useSession();
@@ -42,12 +43,23 @@ export function UserNav() {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {/* <DropdownMenuGroup> */}
-        {/*   <DropdownMenuItem>Settings</DropdownMenuItem> */}
-        {/* </DropdownMenuGroup> */}
-        {/* <DropdownMenuSeparator /> */}
+        <DropdownMenuGroup>
+          <a href="https://autocheckin.productlane.com/roadmap" target="_blank">
+            <DropdownMenuItem Icon={MessageCircleHeart}>
+              Feedback
+            </DropdownMenuItem>
+          </a>
+          <a
+            href="https://autocheckin.productlane.com/changelog"
+            target="_blank"
+          >
+            <DropdownMenuItem Icon={ScrollText}>Changelog</DropdownMenuItem>
+          </a>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem
+            Icon={LogOut}
             onClick={() => {
               void router.push("/logout");
             }}
