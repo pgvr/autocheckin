@@ -101,6 +101,7 @@ export async function makeBooking({
         name: userName,
         email: userEmail,
         location: "",
+        notes: "Scheduled with Autocheckin.app",
       },
     },
     { params: { apiKey } },
