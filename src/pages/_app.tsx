@@ -57,6 +57,15 @@ const MyApp: AppType<{ session: Session | null }> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      //
+      if (window.location.host === "autocheckin.up.railway.app") {
+        window.location.href = `https://autocheckin.app${window.location.pathname}`;
+      }
+    }
+  }, []);
+
   return (
     <PostHogProvider client={posthog}>
       <ThemeProvider enableSystem attribute="class">
