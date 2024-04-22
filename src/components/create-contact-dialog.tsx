@@ -28,6 +28,8 @@ import { Form, useZodForm } from "./ui/form/form";
 import { FormInput } from "./ui/form/form-input";
 import { CheckInFrequency } from "@prisma/client";
 import { FormSelect } from "./ui/form/form-select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { Info } from "lucide-react";
 
 export function CreateContactDialog({
   children: trigger,
@@ -156,8 +158,9 @@ function ContactForm({
         name="calLink"
       />
       <FormSelect
-        label="Frequency"
+        label={"Frequency"}
         name="checkInFrequency"
+        description="We always add some variance when scheduling meetings to make it seem more natural."
         options={[
           { label: "Weekly-ish", value: CheckInFrequency.WEEKLY },
           { label: "Bi-weekly-ish", value: CheckInFrequency.BIWEEKLY },

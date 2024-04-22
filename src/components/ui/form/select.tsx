@@ -35,6 +35,7 @@ export interface SelectProps {
   errorMessage?: ReactNode;
   showErrorMessage?: boolean;
   placeholder?: string;
+  description?: string;
 }
 export const ComposedSelect = React.memo(
   React.forwardRef<HTMLButtonElement, SelectProps>(
@@ -50,6 +51,7 @@ export const ComposedSelect = React.memo(
         errorMessage,
         label,
         showErrorMessage = true,
+        description,
         placeholder = "Select...",
       },
       ref,
@@ -57,7 +59,7 @@ export const ComposedSelect = React.memo(
       return (
         <div className={cn("flex flex-col", className)}>
           {label && (
-            <Label className="mb-1.5" htmlFor={name}>
+            <Label className="relative mb-1.5" htmlFor={name}>
               {label}
             </Label>
           )}
@@ -105,6 +107,11 @@ export const ComposedSelect = React.memo(
               </motion.p>
             )}
           </AnimatePresence>
+          {description && (
+            <div className="mt-2 text-sm text-muted-foreground">
+              {description}
+            </div>
+          )}
         </div>
       );
     },

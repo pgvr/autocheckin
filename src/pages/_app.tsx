@@ -27,6 +27,7 @@ import { PostHogProvider } from "posthog-js/react";
 import { env } from "~/env";
 import { useRouter } from "next/router";
 import { useEffect } from "react";
+import { TooltipProvider } from "~/components/ui/tooltip";
 
 // Check that PostHog is client-side (used to handle Next.js SSR)
 if (typeof window !== "undefined") {
@@ -69,52 +70,54 @@ const MyApp: AppType<{ session: Session | null }> = ({
   return (
     <PostHogProvider client={posthog}>
       <ThemeProvider enableSystem attribute="class">
-        <SessionProvider session={session}>
-          <style jsx global>{`
-            html {
-              --font-cal: ${calFont.style.fontFamily};
-              --font-inter: ${interFont.style.fontFamily};
-            }
-          `}</style>
-          <Head>
-            <link
-              rel="apple-touch-icon"
-              sizes="180x180"
-              href="/icons/apple-touch-icon.png"
-            />
-            <link
-              rel="icon"
-              type="image/png"
-              sizes="32x32"
-              href="/icons/favicon-32x32.png"
-            />
-            <link
-              rel="icon"
-              type="image/png"
-              sizes="16x16"
-              href="/icons/favicon-16x16.png"
-            />
-            <link rel="manifest" href="/icons/site.webmanifest" />
-            <link
-              rel="mask-icon"
-              href="/icons/safari-pinned-tab.svg"
-              color="#5bbad5"
-            />
-            <link rel="shortcut icon" href="/icons/favicon.ico" />
-            <meta name="msapplication-TileColor" content="#da532c" />
-            <meta
-              name="msapplication-config"
-              content="/icons/browserconfig.xml"
-            />
-            <meta name="theme-color" content="#ffffff" />
-          </Head>
+        <TooltipProvider>
+          <SessionProvider session={session}>
+            <style jsx global>{`
+              html {
+                --font-cal: ${calFont.style.fontFamily};
+                --font-inter: ${interFont.style.fontFamily};
+              }
+            `}</style>
+            <Head>
+              <link
+                rel="apple-touch-icon"
+                sizes="180x180"
+                href="/icons/apple-touch-icon.png"
+              />
+              <link
+                rel="icon"
+                type="image/png"
+                sizes="32x32"
+                href="/icons/favicon-32x32.png"
+              />
+              <link
+                rel="icon"
+                type="image/png"
+                sizes="16x16"
+                href="/icons/favicon-16x16.png"
+              />
+              <link rel="manifest" href="/icons/site.webmanifest" />
+              <link
+                rel="mask-icon"
+                href="/icons/safari-pinned-tab.svg"
+                color="#5bbad5"
+              />
+              <link rel="shortcut icon" href="/icons/favicon.ico" />
+              <meta name="msapplication-TileColor" content="#da532c" />
+              <meta
+                name="msapplication-config"
+                content="/icons/browserconfig.xml"
+              />
+              <meta name="theme-color" content="#ffffff" />
+            </Head>
 
-          <main className={`min-h-screen font-sans`}>
-            <DefaultSeo {...seoConfig} />
-            <Component {...pageProps} />
-            <Toaster />
-          </main>
-        </SessionProvider>
+            <main className={`min-h-screen font-sans`}>
+              <DefaultSeo {...seoConfig} />
+              <Component {...pageProps} />
+              <Toaster />
+            </main>
+          </SessionProvider>
+        </TooltipProvider>
       </ThemeProvider>
     </PostHogProvider>
   );
