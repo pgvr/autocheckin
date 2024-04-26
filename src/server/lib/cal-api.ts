@@ -1,10 +1,11 @@
 import { type CheckInFrequency } from "@prisma/client";
-import * as R from "remeda";
 import axios from "axios";
-import { addDays } from "date-fns";
+import { addDays, addMinutes } from "date-fns";
+import * as R from "remeda";
 import { z } from "zod";
-import { inngest } from "./inngest/client";
 import { getRandomNumberBetween } from "~/lib/utils";
+import { inngest } from "./inngest/client";
+import { captureMessage } from "@sentry/nextjs";
 
 const EventInfoResponseSchema = z.array(
   z.object({
@@ -17,6 +18,7 @@ const EventInfoResponseSchema = z.array(
             avatarUrl: z.string().nullish(),
             name: z.string(),
           }),
+          length: z.number(),
         }),
       }),
     }),
@@ -66,6 +68,35 @@ export async function getSlots({
   const parsedResponse = GetSlotsResponseSchema.parse(response.data);
   return parsedResponse;
 }
+const GetEventTypeResponseSchema = z.object({
+  event_type: z.object({
+    id: z.number(),
+    title: z.string(),
+    slug: z.string(),
+    length: z.number(),
+  }),
+});
+export async function getEventType({
+  apiKey,
+  eventTypeId,
+}: {
+  apiKey: string;
+  eventTypeId: number;
+}) {
+  try {
+    const response = await calApi.get(`/event-types/${eventTypeId}`, {
+      params: {
+        apiKey,
+      },
+    });
+    console.log("resp", response);
+    const parsedResponse = GetEventTypeResponseSchema.parse(response.data);
+    return parsedResponse;
+  } catch (error) {
+    console.log(error);
+    throw error;
+  }
+}
 
 const BookingResponseSchema = z.object({
   id: z.number(),
@@ -110,6 +141,46 @@ export async function makeBooking({
   return parsedResponse;
 }
 
+const AvailabilityResponseSchema = z.object({
+  dateRanges: z.array(
+    z.object({
+      start: z.string(),
+      end: z.string(),
+    }),
+  ),
+  timeZone: z.string(),
+});
+export async function getAvailability({
+  apiKey,
+  username,
+  dateFrom,
+  dateTo,
+}: {
+  apiKey: string;
+  username: string;
+  dateFrom: string;
+  dateTo: string;
+}) {
+  const response = await calApi.get("/availability", {
+    params: { apiKey, dateFrom, dateTo, username },
+  });
+  const parsedResponse = AvailabilityResponseSchema.parse(response.data);
+  return parsedResponse;
+}
+const MeResponseSchema = z.object({
+  user: z.object({
+    id: z.number(),
+    username: z.string(),
+  }),
+});
+export async function getUserInfo({ apiKey }: { apiKey: string }) {
+  const response = await calApi.get("/me", {
+    params: { apiKey },
+  });
+  const parsedResponse = MeResponseSchema.parse(response.data);
+  return parsedResponse;
+}
+
 export async function scheduleNextBooking({
   frequency,
   apiKey,
@@ -117,14 +188,28 @@ export async function scheduleNextBooking({
   userEmail,
   userName,
   contactId,
+  contactCalLink,
 }: {
   frequency: CheckInFrequency;
   apiKey: string;
   eventTypeId: number;
   contactId: string;
+  contactCalLink: string;
   userName: string;
   userEmail: string;
 }) {
+  const { user } = await getUserInfo({ apiKey });
+  const splits = contactCalLink.split("/");
+  const eventSlug = splits[splits.length - 1];
+  const username = splits[splits.length - 2];
+  if (!eventSlug || !username) {
+    throw new Error("Slug or username not defined");
+  }
+
+  const [eventInfo] = await getEventTypeInfo({ username, eventSlug });
+  if (!eventInfo) {
+    throw new Error("Event info not found");
+  }
   const now = new Date();
   let start;
   let end;
@@ -163,8 +248,16 @@ export async function scheduleNextBooking({
     throw new Error("Failed to get start/end");
   }
 
-  // get slots between first and last date
-  // shuffle keys of reponse
+  // first, get availability of the user
+  const availability = await getAvailability({
+    apiKey,
+    username: user.username,
+    dateFrom: start,
+    dateTo: end,
+  });
+
+  const shuffledAvailabilities = R.shuffle(availability.dateRanges);
+
   const { slots } = await getSlots({
     apiKey,
     eventTypeId,
@@ -172,10 +265,32 @@ export async function scheduleNextBooking({
     endTime: end,
   });
 
-  const keys = Object.keys(slots);
-  if (keys.length === 0) {
-    // could add retries here if no event is found for that time range, increase endTime until something is found
-    // for now we just schedule another meeting function
+  const slotKeys = Object.keys(slots);
+
+  const slotValues = Object.values(slots).flat();
+  let slotToBook;
+  for (const a of shuffledAvailabilities) {
+    const matchingSlot = slotValues.find((s) => {
+      const startOfSlot = new Date(s.time);
+      const endOfSlot = addMinutes(
+        startOfSlot,
+        eventInfo.result.data.json.length,
+      );
+      const isWithinAvailability =
+        new Date(a.start) <= startOfSlot && new Date(a.end) >= endOfSlot;
+      return isWithinAvailability;
+    });
+    if (matchingSlot) {
+      slotToBook = matchingSlot;
+      console.log("found matching slot", matchingSlot, a);
+      break;
+    }
+  }
+
+  if (slotKeys.length === 0 || !slotToBook) {
+    // either there are no slots available at all or none within availablities
+    // just "skip" this one and schedule next one
+    // could add retries here to make it more robust or already schedule the next meeting right now
     const randomAmountDays = getRandomNumberBetween(1, 3);
     await inngest.send({
       name: "schedule-meeting",
@@ -184,17 +299,13 @@ export async function scheduleNextBooking({
         runTime: addDays(end, randomAmountDays).toISOString(),
       },
     });
-    return;
-  }
-
-  const [randomKey] = R.shuffle(keys);
-  if (!randomKey) {
-    return;
-  }
-  const timeSlots = slots[randomKey]!;
-  const [randomSlot] = R.shuffle(timeSlots);
-
-  if (!randomSlot) {
+    captureMessage("Failed to find a time", {
+      extra: {
+        contactId,
+        start,
+        end,
+      },
+    });
     return;
   }
 
@@ -203,7 +314,7 @@ export async function scheduleNextBooking({
     userName,
     userEmail,
     eventTypeId,
-    start: randomSlot.time,
+    start: slotToBook.time,
   });
 
   // schedule when to make next booking

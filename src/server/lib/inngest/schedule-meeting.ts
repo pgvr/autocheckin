@@ -36,6 +36,7 @@ export const scheduleMeetingFunction = inngest.createFunction(
         eventTypeId: contact.eventTypeId,
         userEmail: contact.user.email ?? "",
         userName: contact.user.name ?? contact.user.email ?? "",
+        contactCalLink: contact.calLink,
       });
 
       return booking;

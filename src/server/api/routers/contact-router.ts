@@ -139,6 +139,7 @@ export const contactRouter = createTRPCRouter({
             apiKey,
             frequency: input.checkInFrequency,
             contactId: contact.id,
+            contactCalLink: formattedLink,
           });
           if (firstBooking) {
             await tx.booking.create({
@@ -188,6 +189,7 @@ export const contactRouter = createTRPCRouter({
               id: true,
               eventTypeId: true,
               checkInFrequency: true,
+              calLink: true,
             },
           });
 
@@ -222,6 +224,7 @@ export const contactRouter = createTRPCRouter({
             eventTypeId: contact.eventTypeId,
             apiKey,
             frequency: contact.checkInFrequency,
+            contactCalLink: contact.calLink,
           });
           if (nextBooking) {
             await tx.booking.create({
