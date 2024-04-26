@@ -83,19 +83,13 @@ export async function getEventType({
   apiKey: string;
   eventTypeId: number;
 }) {
-  try {
-    const response = await calApi.get(`/event-types/${eventTypeId}`, {
-      params: {
-        apiKey,
-      },
-    });
-    console.log("resp", response);
-    const parsedResponse = GetEventTypeResponseSchema.parse(response.data);
-    return parsedResponse;
-  } catch (error) {
-    console.log(error);
-    throw error;
-  }
+  const response = await calApi.get(`/event-types/${eventTypeId}`, {
+    params: {
+      apiKey,
+    },
+  });
+  const parsedResponse = GetEventTypeResponseSchema.parse(response.data);
+  return parsedResponse;
 }
 
 const BookingResponseSchema = z.object({
@@ -282,7 +276,6 @@ export async function scheduleNextBooking({
     });
     if (matchingSlot) {
       slotToBook = matchingSlot;
-      console.log("found matching slot", matchingSlot, a);
       break;
     }
   }
