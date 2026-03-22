@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { ComposedAlertDialog } from "~/components/alert-dialog";
 import { CreateContactDialog } from "~/components/create-contact-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "~/components/ui/avatar";
-import { Button } from "~/components/ui/button";
+import { Button, buttonVariants } from "~/components/ui/button";
 import {
   Card,
   CardContent,
@@ -95,9 +95,12 @@ export default function Home() {
               API key support has been removed. Connect your Cal.com account
               with OAuth to resume scheduling check-ins and managing contacts.
             </p>
-            <Button asChild>
-              <Link href="/api/cal/oauth/start">Connect Cal.com</Link>
-            </Button>
+            <Link
+              href="/api/cal/oauth/start"
+              className={buttonVariants({ className: "inline-flex" })}
+            >
+              Connect Cal.com
+            </Link>
           </div>
         )}
 
@@ -155,9 +158,15 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
-                <Button variant="outline" asChild>
-                  <Link href="/api/cal/oauth/start">Reconnect Cal.com</Link>
-                </Button>
+                <Link
+                  href="/api/cal/oauth/start"
+                  className={buttonVariants({
+                    variant: "outline",
+                    className: "inline-flex",
+                  })}
+                >
+                  Reconnect Cal.com
+                </Link>
               </CardContent>
             </Card>
 
