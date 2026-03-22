@@ -24,6 +24,10 @@ export const env = createEnv({
     ),
     GOOGLE_CLIENT_ID: z.string().min(1),
     GOOGLE_CLIENT_SECRET: z.string().min(1),
+    CAL_OAUTH_CLIENT_ID: z.string().min(1),
+    CAL_OAUTH_CLIENT_SECRET: z.string().min(1),
+    CAL_OAUTH_REDIRECT_URI: z.string().url(),
+    CAL_OAUTH_TOKEN_ENCRYPTION_KEY: z.string().min(1),
   },
 
   /**
@@ -47,6 +51,10 @@ export const env = createEnv({
     NEXTAUTH_URL: process.env.NEXTAUTH_URL,
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+    CAL_OAUTH_CLIENT_ID: process.env.CAL_OAUTH_CLIENT_ID,
+    CAL_OAUTH_CLIENT_SECRET: process.env.CAL_OAUTH_CLIENT_SECRET,
+    CAL_OAUTH_REDIRECT_URI: process.env.CAL_OAUTH_REDIRECT_URI,
+    CAL_OAUTH_TOKEN_ENCRYPTION_KEY: process.env.CAL_OAUTH_TOKEN_ENCRYPTION_KEY,
     NEXT_PUBLIC_POSTHOG_KEY: process.env.NEXT_PUBLIC_POSTHOG_KEY,
   },
   /**

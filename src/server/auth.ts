@@ -22,7 +22,6 @@ declare module "next-auth" {
   interface Session extends DefaultSession {
     user: DefaultSession["user"] & {
       id: string;
-      calApiKey?: string;
       // ...other properties
       // role: UserRole;
     };
@@ -48,7 +47,6 @@ export const authOptions: NextAuthOptions = {
         user: {
           ...session.user,
           id: typedUser.id,
-          calApiKey: typedUser.calApiKey,
         },
       };
     },

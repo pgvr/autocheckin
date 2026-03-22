@@ -1,7 +1,9 @@
+import { captureMessage } from "@sentry/nextjs";
 import { NonRetriableError } from "inngest";
 import { inngest } from "./client";
 import { db } from "~/server/db";
 import { scheduleNextBooking } from "../cal-api";
+import { CalConnectionError } from "../cal-oauth";
 
 export const scheduleMeetingFunction = inngest.createFunction(
   {
@@ -25,19 +27,33 @@ export const scheduleMeetingFunction = inngest.createFunction(
       if (!contact) {
         throw new NonRetriableError("Contact not found");
       }
-      if (!contact.user.calApiKey) {
-        throw new NonRetriableError("User has no API key");
-      }
 
-      const booking = await scheduleNextBooking({
-        contactId: contact.id,
-        frequency: contact.checkInFrequency,
-        apiKey: contact.user.calApiKey,
-        eventTypeId: contact.eventTypeId,
-        userEmail: contact.user.email ?? "",
-        userName: contact.user.name ?? contact.user.email ?? "",
-        contactCalLink: contact.calLink,
-      });
+      let booking;
+      try {
+        booking = await scheduleNextBooking({
+          contactId: contact.id,
+          frequency: contact.checkInFrequency,
+          userId: contact.user.id,
+          eventTypeId: contact.eventTypeId,
+          userEmail: contact.user.email ?? "",
+          userName: contact.user.name ?? contact.user.email ?? "",
+        });
+      } catch (error) {
+        if (error instanceof CalConnectionError) {
+          captureMessage(
+            "Stopping scheduled check-in because Cal connection is missing",
+            {
+              extra: {
+                contactId: contact.id,
+                userId: contact.user.id,
+              },
+            },
+          );
+          throw new NonRetriableError(error.message);
+        }
+
+        throw error;
+      }
 
       return booking;
     });
@@ -54,9 +70,6 @@ export const scheduleMeetingFunction = inngest.createFunction(
         });
         if (!contact) {
           throw new NonRetriableError("Contact not found");
-        }
-        if (!contact.user.calApiKey) {
-          throw new NonRetriableError("User has no API key");
         }
         await db.booking.create({
           data: {

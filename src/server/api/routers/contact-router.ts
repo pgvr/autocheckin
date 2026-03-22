@@ -7,7 +7,19 @@ import {
   getEventTypeInfo,
   scheduleNextBooking,
 } from "~/server/lib/cal-api";
+import { CalConnectionError } from "~/server/lib/cal-oauth";
 import { inngest } from "~/server/lib/inngest/client";
+
+const throwIfCalConnectionError = (error: unknown): never => {
+  if (error instanceof CalConnectionError) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: error.message,
+    });
+  }
+
+  throw error;
+};
 
 export const contactRouter = createTRPCRouter({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -45,12 +57,13 @@ export const contactRouter = createTRPCRouter({
             if (!val) {
               return false;
             }
-            // https://cal.com/patrick-productlane/30min?date=2024-04-22&month=2024-04
+
             const splits = val.split("cal.com");
             const urlPart = splits[1];
             if (!urlPart) {
               return false;
             }
+
             const slashSplits = urlPart.split("/");
             const [, username, type] = slashSplits;
             if (!username || !type) {
@@ -65,18 +78,12 @@ export const contactRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const apiKey = ctx.session.user.calApiKey;
-      if (!apiKey) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Cal.com API key required",
-        });
-      }
       const splits = input.calLink.split("cal.com");
       const urlPart = splits[1];
       if (!urlPart) {
         return false;
       }
+
       const slashSplits = urlPart.split("/");
       const [, username, type] = slashSplits;
       if (!username || !type) {
@@ -86,6 +93,7 @@ export const contactRouter = createTRPCRouter({
             "Malformed cal.com link. Event type needs to be included in URL.",
         });
       }
+
       const [typeWithoutParams] = type.split("?");
       if (!typeWithoutParams) {
         throw new TRPCError({
@@ -102,11 +110,17 @@ export const contactRouter = createTRPCRouter({
         });
       }
 
-      // look up event type
-      const [info] = await getEventTypeInfo({
-        username,
-        eventSlug: typeWithoutParams,
-      });
+      let info;
+      try {
+        info = await getEventTypeInfo({
+          userId: ctx.session.user.id,
+          username,
+          eventSlug: typeWithoutParams,
+        });
+      } catch (error) {
+        throwIfCalConnectionError(error);
+      }
+
       if (!info) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
@@ -114,49 +128,77 @@ export const contactRouter = createTRPCRouter({
         });
       }
 
-      await ctx.db.$transaction(
-        async (tx) => {
-          const contact = await tx.contact.create({
-            data: {
-              name: input.name,
-              calLink: formattedLink,
-              userId: ctx.session.user.id,
-              checkInFrequency: input.checkInFrequency,
-              eventTypeId: info.result.data.json.id,
-              calId: info.result.data.json.owner.id,
-              calName: info.result.data.json.owner.name,
-              calAvatarUrl: info.result.data.json.owner.avatarUrl,
-            },
-
-            select: {
-              id: true,
-            },
-          });
-          const firstBooking = await scheduleNextBooking({
-            userName: ctx.session.user.name ?? ctx.session.user.email ?? "",
-            userEmail: ctx.session.user.email ?? "",
-            eventTypeId: info.result.data.json.id,
-            apiKey,
-            frequency: input.checkInFrequency,
-            contactId: contact.id,
-            contactCalLink: formattedLink,
-          });
-          if (firstBooking) {
-            await tx.booking.create({
-              data: {
-                userId: ctx.session.user.id,
-                calId: firstBooking.id,
-                calUid: firstBooking.uid,
-                startTime: firstBooking.startTime,
-                endTime: firstBooking.endTime,
-                contactId: contact.id,
-              },
-            });
-          }
+      const contact = await ctx.db.contact.create({
+        data: {
+          name: input.name,
+          calLink: formattedLink,
+          userId: ctx.session.user.id,
+          checkInFrequency: input.checkInFrequency,
+          eventTypeId: info.id,
+          calId: info.ownerId,
+          calName: info.owner.name,
+          calAvatarUrl: info.owner.avatarUrl,
         },
-        { timeout: 10_000 },
-      );
+        select: {
+          id: true,
+        },
+      });
+
+      let firstBooking:
+        | Awaited<ReturnType<typeof scheduleNextBooking>>
+        | undefined = undefined;
+
+      try {
+        firstBooking = await scheduleNextBooking({
+          userId: ctx.session.user.id,
+          userName: ctx.session.user.name ?? ctx.session.user.email ?? "",
+          userEmail: ctx.session.user.email ?? "",
+          eventTypeId: info.id,
+          frequency: input.checkInFrequency,
+          contactId: contact.id,
+        });
+
+        if (firstBooking) {
+          await ctx.db.booking.create({
+            data: {
+              userId: ctx.session.user.id,
+              calId: firstBooking.id,
+              calUid: firstBooking.uid,
+              startTime: firstBooking.startTime,
+              endTime: firstBooking.endTime,
+              contactId: contact.id,
+            },
+          });
+        }
+      } catch (error) {
+        await inngest.send({
+          name: "cancel-schedule-meeting",
+          data: {
+            contactId: contact.id,
+          },
+        });
+
+        if (firstBooking) {
+          try {
+            await cancelBooking({
+              userId: ctx.session.user.id,
+              uid: firstBooking.uid,
+            });
+          } catch {
+            // Best-effort cleanup for partially created remote bookings.
+          }
+        }
+
+        await ctx.db.contact.delete({
+          where: {
+            id: contact.id,
+          },
+        });
+
+        throwIfCalConnectionError(error);
+      }
     }),
+
   update: protectedProcedure
     .input(
       z.object({
@@ -166,82 +208,106 @@ export const contactRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const apiKey = ctx.session.user.calApiKey;
-      if (!apiKey) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Cal.com API key required",
+      const userId = ctx.session.user.id;
+      const upcomingBookings = await ctx.db.booking.findMany({
+        where: {
+          userId,
+          contactId: input.id,
+          startTime: {
+            gte: new Date(),
+          },
+        },
+      });
+
+      const contact = await ctx.db.contact.update({
+        where: {
+          userId,
+          id: input.id,
+        },
+        data: {
+          name: input.name,
+          checkInFrequency: input.checkInFrequency,
+        },
+        select: {
+          id: true,
+          eventTypeId: true,
+          checkInFrequency: true,
+        },
+      });
+
+      await inngest.send({
+        name: "cancel-schedule-meeting",
+        data: {
+          contactId: contact.id,
+        },
+      });
+
+      for (const booking of upcomingBookings) {
+        try {
+          await cancelBooking({
+            userId,
+            uid: booking.calUid,
+          });
+        } catch (error) {
+          throwIfCalConnectionError(error);
+        }
+
+        await ctx.db.booking.delete({
+          where: {
+            id: booking.id,
+          },
         });
       }
 
-      await ctx.db.$transaction(
-        async (tx) => {
-          const contact = await tx.contact.update({
-            where: {
-              userId: ctx.session.user.id,
-              id: input.id,
-            },
-            data: {
-              name: input.name,
-              checkInFrequency: input.checkInFrequency,
-            },
-            select: {
-              id: true,
-              eventTypeId: true,
-              checkInFrequency: true,
-              calLink: true,
-            },
-          });
+      let nextBooking:
+        | Awaited<ReturnType<typeof scheduleNextBooking>>
+        | undefined = undefined;
 
-          await inngest.send({
-            name: "cancel-schedule-meeting",
+      try {
+        nextBooking = await scheduleNextBooking({
+          contactId: contact.id,
+          userId,
+          userName: ctx.session.user.name ?? ctx.session.user.email ?? "",
+          userEmail: ctx.session.user.email ?? "",
+          eventTypeId: contact.eventTypeId,
+          frequency: contact.checkInFrequency,
+        });
+
+        if (nextBooking) {
+          await ctx.db.booking.create({
             data: {
+              userId,
+              calId: nextBooking.id,
+              calUid: nextBooking.uid,
+              startTime: nextBooking.startTime,
+              endTime: nextBooking.endTime,
               contactId: contact.id,
             },
           });
-          const upcomingBookings = await tx.booking.findMany({
-            where: {
-              userId: ctx.session.user.id,
-              contactId: contact.id,
-              startTime: {
-                gte: new Date(),
-              },
-            },
-          });
-          for (const booking of upcomingBookings) {
-            await cancelBooking({ uid: booking.calUid });
-            await tx.booking.delete({
-              where: {
-                id: booking.id,
-              },
-            });
-          }
-
-          const nextBooking = await scheduleNextBooking({
+        }
+      } catch (error) {
+        await inngest.send({
+          name: "cancel-schedule-meeting",
+          data: {
             contactId: contact.id,
-            userName: ctx.session.user.name ?? ctx.session.user.email ?? "",
-            userEmail: ctx.session.user.email ?? "",
-            eventTypeId: contact.eventTypeId,
-            apiKey,
-            frequency: contact.checkInFrequency,
-            contactCalLink: contact.calLink,
-          });
-          if (nextBooking) {
-            await tx.booking.create({
-              data: {
-                userId: ctx.session.user.id,
-                calId: nextBooking.id,
-                calUid: nextBooking.uid,
-                startTime: nextBooking.startTime,
-                endTime: nextBooking.endTime,
-                contactId: contact.id,
-              },
+          },
+        });
+
+        if (nextBooking) {
+          try {
+            await cancelBooking({
+              userId,
+              uid: nextBooking.uid,
             });
+          } catch {
+            // Best-effort cleanup for partially created remote bookings.
           }
-        },
-        { timeout: 10_000 },
-      );
+        }
+
+        throwIfCalConnectionError(error);
+      }
     }),
+
   delete: protectedProcedure
     .input(
       z.object({
@@ -249,31 +315,39 @@ export const contactRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id;
       const upcomingBookings = await ctx.db.booking.findMany({
         where: {
-          userId: ctx.session.user.id,
+          userId,
           contactId: input.id,
           startTime: {
             gte: new Date(),
           },
         },
       });
+
       await inngest.send({
         name: "cancel-schedule-meeting",
         data: {
           contactId: input.id,
         },
       });
+
       for (const booking of upcomingBookings) {
-        await cancelBooking({ uid: booking.calUid });
+        try {
+          await cancelBooking({
+            userId,
+            uid: booking.calUid,
+          });
+        } catch (error) {
+          throwIfCalConnectionError(error);
+        }
       }
+
       await ctx.db.contact.delete({
         where: {
-          userId: ctx.session.user.id,
+          userId,
           id: input.id,
-        },
-        select: {
-          id: true,
         },
       });
     }),

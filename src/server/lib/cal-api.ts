@@ -1,212 +1,263 @@
 import { type CheckInFrequency } from "@prisma/client";
-import axios from "axios";
-import { addDays, addMinutes } from "date-fns";
+import { captureMessage } from "@sentry/nextjs";
+import axios, { type Method } from "axios";
+import { addDays } from "date-fns";
 import * as R from "remeda";
 import { z } from "zod";
-import { getRandomNumberBetween } from "~/lib/utils";
-import { inngest } from "./inngest/client";
-import { captureMessage } from "@sentry/nextjs";
 
-const EventInfoResponseSchema = z.array(
+import { getRandomNumberBetween } from "~/lib/utils";
+
+import { getValidAccessToken } from "./cal-oauth";
+import { inngest } from "./inngest/client";
+
+const CAL_API_V2_BASE_URL = "https://api.cal.com/v2";
+const EVENT_TYPES_API_VERSION = "2024-06-14";
+const SLOTS_API_VERSION = "2024-09-04";
+const BOOKINGS_API_VERSION = "2026-02-25";
+const DEFAULT_ATTENDEE_TIMEZONE = "Europe/Berlin";
+const DEFAULT_ATTENDEE_LANGUAGE = "en";
+
+const calApi = axios.create({
+  baseURL: CAL_API_V2_BASE_URL,
+});
+
+const successEnvelope = <TSchema extends z.ZodTypeAny>(data: TSchema) =>
   z.object({
-    result: z.object({
-      data: z.object({
-        json: z.object({
-          id: z.number(),
-          owner: z.object({
-            id: z.number(),
-            avatarUrl: z.string().nullish(),
-            name: z.string(),
-          }),
-          length: z.number(),
-        }),
+    status: z.literal("success"),
+    data,
+  });
+
+const getHeaders = (accessToken: string, apiVersion?: string) => ({
+  Authorization: `Bearer ${accessToken}`,
+  ...(apiVersion ? { "cal-api-version": apiVersion } : {}),
+});
+
+const EventTypeSchema = z.object({
+  id: z.number(),
+  lengthInMinutes: z.number(),
+  ownerId: z.number().optional(),
+  users: z
+    .array(
+      z.object({
+        id: z.number(),
+        name: z.string(),
+        avatarUrl: z.string().nullish(),
       }),
-    }),
-  }),
+    )
+    .min(1),
+});
+
+const EventTypesResponseSchema = successEnvelope(z.array(EventTypeSchema));
+
+const SlotsResponseSchema = successEnvelope(
+  z.record(
+    z.string(),
+    z.array(
+      z.object({
+        start: z.string(),
+      }),
+    ),
+  ),
 );
 
-// Didn't find a way to get the ID of an event type via the official API
+const BookingSchema = z.object({
+  id: z.number(),
+  uid: z.string(),
+  start: z.string(),
+  end: z.string(),
+});
+
+const BookingResponseSchema = successEnvelope(BookingSchema);
+
+type CalEventTypeInfo = {
+  id: number;
+  lengthInMinutes: number;
+  ownerId: number;
+  owner: {
+    id: number;
+    name: string;
+    avatarUrl?: string | null;
+  };
+};
+
+type ScheduledBooking = {
+  id: number;
+  uid: string;
+  startTime: string;
+  endTime: string;
+};
+
+const toScheduledBooking = (booking: z.infer<typeof BookingSchema>) => ({
+  id: booking.id,
+  uid: booking.uid,
+  startTime: booking.start,
+  endTime: booking.end,
+});
+
+const requestCalApi = async <TOutput>({
+  userId,
+  method,
+  url,
+  apiVersion,
+  params,
+  data,
+  schema,
+}: {
+  userId: string;
+  method: Method;
+  url: string;
+  apiVersion?: string;
+  params?: Record<string, unknown>;
+  data?: unknown;
+  schema: z.ZodType<TOutput>;
+}): Promise<TOutput> => {
+  const execute = async (accessToken: string) => {
+    const response = await calApi.request<unknown>({
+      method,
+      url,
+      params,
+      data,
+      headers: getHeaders(accessToken, apiVersion),
+    });
+
+    return schema.parse(response.data);
+  };
+
+  let accessToken = await getValidAccessToken(userId);
+
+  try {
+    return await execute(accessToken);
+  } catch (error) {
+    if (!axios.isAxiosError(error) || error.response?.status !== 401) {
+      throw error;
+    }
+
+    accessToken = await getValidAccessToken(userId, { forceRefresh: true });
+    return await execute(accessToken);
+  }
+};
+
 export async function getEventTypeInfo({
+  userId,
   username,
   eventSlug,
 }: {
+  userId: string;
   username: string;
   eventSlug: string;
-}) {
-  const url = `https://cal.com/api/trpc/public/event?batch=1&input={"0"%3A{"json"%3A{"username"%3A"${username}"%2C"eventSlug"%3A"${eventSlug}"%2C"isTeamEvent"%3Afalse%2C"org"%3Anull}}}`;
-  const response = await axios.get(url);
-  const parsed = EventInfoResponseSchema.parse(response.data);
-  return parsed;
+}): Promise<CalEventTypeInfo | null> {
+  const parsedResponse = await requestCalApi({
+    userId,
+    method: "GET",
+    url: "/event-types",
+    apiVersion: EVENT_TYPES_API_VERSION,
+    params: {
+      username,
+      eventSlug,
+    },
+    schema: EventTypesResponseSchema,
+  });
+
+  const [eventType] = parsedResponse.data;
+  if (!eventType) {
+    return null;
+  }
+
+  const [owner] = eventType.users;
+  if (!owner) {
+    return null;
+  }
+
+  return {
+    id: eventType.id,
+    lengthInMinutes: eventType.lengthInMinutes,
+    ownerId: eventType.ownerId ?? owner.id,
+    owner,
+  };
 }
 
-const calApi = axios.create({
-  baseURL: "https://api.cal.com/v1",
-});
-
-const GetSlotsResponseSchema = z.object({
-  slots: z.record(z.string(), z.array(z.object({ time: z.string() }))),
-});
 export async function getSlots({
-  apiKey,
-  startTime,
-  endTime,
+  userId,
+  start,
+  end,
   eventTypeId,
 }: {
-  apiKey: string;
-  startTime: string;
-  endTime: string;
+  userId: string;
+  start: string;
+  end: string;
   eventTypeId: number;
-}) {
-  const response = await calApi.get("/slots", {
+}): Promise<z.infer<typeof SlotsResponseSchema>["data"]> {
+  const parsedResponse = await requestCalApi({
+    userId,
+    method: "GET",
+    url: "/slots",
+    apiVersion: SLOTS_API_VERSION,
     params: {
-      apiKey,
-      startTime,
-      endTime,
+      start,
+      end,
       eventTypeId,
     },
+    schema: SlotsResponseSchema,
   });
-  const parsedResponse = GetSlotsResponseSchema.parse(response.data);
-  return parsedResponse;
-}
-const GetEventTypeResponseSchema = z.object({
-  event_type: z.object({
-    id: z.number(),
-    title: z.string(),
-    slug: z.string(),
-    length: z.number(),
-  }),
-});
-export async function getEventType({
-  apiKey,
-  eventTypeId,
-}: {
-  apiKey: string;
-  eventTypeId: number;
-}) {
-  const response = await calApi.get(`/event-types/${eventTypeId}`, {
-    params: {
-      apiKey,
-    },
-  });
-  const parsedResponse = GetEventTypeResponseSchema.parse(response.data);
-  return parsedResponse;
+
+  return parsedResponse.data;
 }
 
-const BookingResponseSchema = z.object({
-  id: z.number(),
-  uid: z.string(),
-  startTime: z.string(),
-  endTime: z.string(),
-});
 export async function makeBooking({
-  apiKey,
+  userId,
   start,
   eventTypeId,
   userName,
   userEmail,
 }: {
-  apiKey: string;
+  userId: string;
   start: string;
   eventTypeId: number;
   userName: string;
   userEmail: string;
-}) {
-  const response = await calApi.post(
-    "/bookings",
-    {
+}): Promise<ScheduledBooking> {
+  const parsedResponse = await requestCalApi({
+    userId,
+    method: "POST",
+    url: "/bookings",
+    apiVersion: BOOKINGS_API_VERSION,
+    data: {
       eventTypeId,
       start,
+      attendee: {
+        name: userName,
+        email: userEmail,
+        timeZone: DEFAULT_ATTENDEE_TIMEZONE,
+        language: DEFAULT_ATTENDEE_LANGUAGE,
+      },
       metadata: {
         checkin: "true",
       },
-      // I think the timezone doesn't matter here since we just look up slots and pass that time in
-      timeZone: "Europe/Berlin",
-      language: "en",
-      responses: {
-        name: userName,
-        email: userEmail,
-        location: "",
-        notes: "Scheduled with Autocheckin.app",
-      },
     },
-    { params: { apiKey } },
-  );
-  const parsedResponse = BookingResponseSchema.parse(response.data);
-  return parsedResponse;
-}
+    schema: BookingResponseSchema,
+  });
 
-const AvailabilityResponseSchema = z.object({
-  dateRanges: z.array(
-    z.object({
-      start: z.string(),
-      end: z.string(),
-    }),
-  ),
-  timeZone: z.string(),
-});
-export async function getAvailability({
-  apiKey,
-  username,
-  dateFrom,
-  dateTo,
-}: {
-  apiKey: string;
-  username: string;
-  dateFrom: string;
-  dateTo: string;
-}) {
-  const response = await calApi.get("/availability", {
-    params: { apiKey, dateFrom, dateTo, username },
-  });
-  const parsedResponse = AvailabilityResponseSchema.parse(response.data);
-  return parsedResponse;
-}
-const MeResponseSchema = z.object({
-  user: z.object({
-    id: z.number(),
-    username: z.string(),
-  }),
-});
-export async function getUserInfo({ apiKey }: { apiKey: string }) {
-  const response = await calApi.get("/me", {
-    params: { apiKey },
-  });
-  const parsedResponse = MeResponseSchema.parse(response.data);
-  return parsedResponse;
+  return toScheduledBooking(parsedResponse.data);
 }
 
 export async function scheduleNextBooking({
   frequency,
-  apiKey,
+  userId,
   eventTypeId,
   userEmail,
   userName,
   contactId,
-  contactCalLink,
 }: {
   frequency: CheckInFrequency;
-  apiKey: string;
+  userId: string;
   eventTypeId: number;
   contactId: string;
-  contactCalLink: string;
   userName: string;
   userEmail: string;
-}) {
-  const { user } = await getUserInfo({ apiKey });
-  const splits = contactCalLink.split("/");
-  const eventSlug = splits[splits.length - 1];
-  const username = splits[splits.length - 2];
-  if (!eventSlug || !username) {
-    throw new Error("Slug or username not defined");
-  }
-
-  const [eventInfo] = await getEventTypeInfo({ username, eventSlug });
-  if (!eventInfo) {
-    throw new Error("Event info not found");
-  }
+}): Promise<ScheduledBooking | undefined> {
   const now = new Date();
-  let start;
-  let end;
+  let start: string | undefined;
+  let end: string | undefined;
 
   if (frequency === "WEEKLY") {
     start = addDays(now, 6).toISOString();
@@ -242,54 +293,22 @@ export async function scheduleNextBooking({
     throw new Error("Failed to get start/end");
   }
 
-  // first, get availability of the user
-  const availability = await getAvailability({
-    apiKey,
-    username: user.username,
-    dateFrom: start,
-    dateTo: end,
-  });
-
-  const shuffledAvailabilities = R.shuffle(availability.dateRanges);
-
-  const { slots } = await getSlots({
-    apiKey,
+  const slots = await getSlots({
+    userId,
     eventTypeId,
-    startTime: start,
-    endTime: end,
+    start,
+    end,
   });
+  const slotValues = R.shuffle(Object.values(slots).flat());
+  const slotToBook = slotValues[0];
 
-  const slotKeys = Object.keys(slots);
-
-  const slotValues = Object.values(slots).flat();
-  let slotToBook;
-  for (const a of shuffledAvailabilities) {
-    const matchingSlot = slotValues.find((s) => {
-      const startOfSlot = new Date(s.time);
-      const endOfSlot = addMinutes(
-        startOfSlot,
-        eventInfo.result.data.json.length,
-      );
-      const isWithinAvailability =
-        new Date(a.start) <= startOfSlot && new Date(a.end) >= endOfSlot;
-      return isWithinAvailability;
-    });
-    if (matchingSlot) {
-      slotToBook = matchingSlot;
-      break;
-    }
-  }
-
-  if (slotKeys.length === 0 || !slotToBook) {
-    // either there are no slots available at all or none within availablities
-    // just "skip" this one and schedule next one
-    // could add retries here to make it more robust or already schedule the next meeting right now
+  if (!slotToBook) {
     const randomAmountDays = getRandomNumberBetween(1, 3);
     await inngest.send({
       name: "schedule-meeting",
       data: {
         contactId,
-        runTime: addDays(end, randomAmountDays).toISOString(),
+        runTime: addDays(new Date(end), randomAmountDays).toISOString(),
       },
     });
     captureMessage("Failed to find a time", {
@@ -303,31 +322,43 @@ export async function scheduleNextBooking({
   }
 
   const booking = await makeBooking({
-    apiKey,
+    userId,
     userName,
     userEmail,
     eventTypeId,
-    start: slotToBook.time,
+    start: slotToBook.start,
   });
 
-  // schedule when to make next booking
   const randomAmountDays = getRandomNumberBetween(1, 3);
   await inngest.send({
     name: "schedule-meeting",
     data: {
       contactId,
-      runTime: addDays(booking.endTime, randomAmountDays).toISOString(),
+      runTime: addDays(
+        new Date(booking.endTime),
+        randomAmountDays,
+      ).toISOString(),
     },
   });
 
   return booking;
 }
 
-export async function cancelBooking({ uid }: { uid: string }) {
-  await axios.post("https://app.cal.com/api/cancel", {
-    allRemainingBookings: false,
-    cancellationReason: "",
-    uid,
+export async function cancelBooking({
+  userId,
+  uid,
+}: {
+  userId: string;
+  uid: string;
+}) {
+  await requestCalApi({
+    userId,
+    method: "POST",
+    url: `/bookings/${uid}/cancel`,
+    apiVersion: BOOKINGS_API_VERSION,
+    data: {
+      cancellationReason: "",
+    },
+    schema: z.unknown(),
   });
-  return;
 }

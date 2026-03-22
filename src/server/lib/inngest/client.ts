@@ -11,10 +11,16 @@ const cancelScheduleMeetingEvent = z.object({
   data: z.object({ contactId: z.string() }),
 }) satisfies LiteralZodEventSchema;
 
+const reseedUserSchedulesEvent = z.object({
+  name: z.literal("reseed-user-schedules"),
+  data: z.object({ userId: z.string() }),
+}) satisfies LiteralZodEventSchema;
+
 export const inngest = new Inngest({
   id: "check-in",
   schemas: new EventSchemas().fromZod([
     scheduleMeetingEvent,
     cancelScheduleMeetingEvent,
+    reseedUserSchedulesEvent,
   ]),
 });

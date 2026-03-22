@@ -63,6 +63,25 @@ model Booking {
   @@index([userId])
 }
 
+model CalConnection {
+  id                    String   @id @default(cuid())
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  calUserId             Int
+  calUsername           String
+  calName               String
+  calAvatarUrl          String
+  encryptedAccessToken  String
+  encryptedRefreshToken String
+  accessTokenExpiresAt  DateTime
+  scopes                String[]
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String @unique
+
+  @@unique([calUserId])
+}
+
 // Necessary for Next auth
 model Account {
   id                String  @id @default(cuid())
@@ -99,8 +118,9 @@ model User {
 
   calApiKey String?
 
-  contacts Contact[]
-  bookings Booking[]
+  contacts      Contact[]
+  bookings      Booking[]
+  calConnection CalConnection?
 
   accounts Account[]
   sessions Session[]
