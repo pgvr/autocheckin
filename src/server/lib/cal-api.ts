@@ -1,5 +1,5 @@
 import { type CheckInFrequency } from "@prisma/client";
-import { captureMessage } from "@sentry/nextjs";
+import { captureException, captureMessage } from "@sentry/nextjs";
 import axios, { type Method } from "axios";
 import { addDays } from "date-fns";
 import * as R from "remeda";
@@ -13,13 +13,76 @@ import { inngest } from "./inngest/client";
 const CAL_API_V2_BASE_URL = "https://api.cal.com/v2";
 const EVENT_TYPES_API_VERSION = "2024-06-14";
 const SLOTS_API_VERSION = "2024-09-04";
-const BOOKINGS_API_VERSION = "2026-02-25";
+const BOOKINGS_API_VERSION = "2024-08-13";
 const DEFAULT_ATTENDEE_TIMEZONE = "Europe/Berlin";
 const DEFAULT_ATTENDEE_LANGUAGE = "en";
 
 const calApi = axios.create({
   baseURL: CAL_API_V2_BASE_URL,
 });
+
+const sanitizeCalRequestData = (data: unknown) => {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return null;
+  }
+
+  const record = data as Record<string, unknown>;
+
+  return {
+    eventTypeId:
+      typeof record.eventTypeId === "number" ? record.eventTypeId : undefined,
+    eventTypeSlug:
+      typeof record.eventTypeSlug === "string"
+        ? record.eventTypeSlug
+        : undefined,
+    username:
+      typeof record.username === "string" ? record.username : undefined,
+    teamSlug:
+      typeof record.teamSlug === "string" ? record.teamSlug : undefined,
+    organizationSlug:
+      typeof record.organizationSlug === "string"
+        ? record.organizationSlug
+        : undefined,
+    start: typeof record.start === "string" ? record.start : undefined,
+    hasAttendee: "attendee" in record,
+    hasMetadata: "metadata" in record,
+  };
+};
+
+const captureCalApiError = ({
+  error,
+  method,
+  url,
+  apiVersion,
+  params,
+  data,
+  didForceRefresh,
+}: {
+  error: unknown;
+  method: Method;
+  url: string;
+  apiVersion?: string;
+  params?: Record<string, unknown>;
+  data?: unknown;
+  didForceRefresh: boolean;
+}) => {
+  if (!axios.isAxiosError(error)) {
+    return;
+  }
+
+  captureException(error, {
+    extra: {
+      calMethod: method,
+      calUrl: url,
+      calApiVersion: apiVersion,
+      calStatus: error.response?.status,
+      calResponseData: error.response?.data,
+      calParams: params,
+      calRequestData: sanitizeCalRequestData(data),
+      calDidForceRefresh: didForceRefresh,
+    },
+  });
+};
 
 const successEnvelope = <TSchema extends z.ZodTypeAny>(data: TSchema) =>
   z.object({
@@ -129,11 +192,34 @@ const requestCalApi = async <TOutput>({
     return await execute(accessToken);
   } catch (error) {
     if (!axios.isAxiosError(error) || error.response?.status !== 401) {
+      captureCalApiError({
+        error,
+        method,
+        url,
+        apiVersion,
+        params,
+        data,
+        didForceRefresh: false,
+      });
       throw error;
     }
 
     accessToken = await getValidAccessToken(userId, { forceRefresh: true });
-    return await execute(accessToken);
+
+    try {
+      return await execute(accessToken);
+    } catch (retryError) {
+      captureCalApiError({
+        error: retryError,
+        method,
+        url,
+        apiVersion,
+        params,
+        data,
+        didForceRefresh: true,
+      });
+      throw retryError;
+    }
   }
 };
 
