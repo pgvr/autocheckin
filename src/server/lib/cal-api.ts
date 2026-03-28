@@ -693,6 +693,37 @@ export async function cancelBooking({
   userId: string;
   uid: string;
 }) {
+  try {
+    await executeCalApiRequest({
+      method: "POST",
+      url: `/bookings/${uid}/cancel`,
+      apiVersion: BOOKINGS_API_VERSION,
+      data: {
+        cancellationReason: "",
+      },
+      schema: z.unknown(),
+    });
+    return;
+  } catch (error) {
+    if (
+      !axios.isAxiosError(error) ||
+      (error.response?.status !== 401 && error.response?.status !== 403)
+    ) {
+      captureCalApiError({
+        error,
+        method: "POST",
+        url: `/bookings/${uid}/cancel`,
+        apiVersion: BOOKINGS_API_VERSION,
+        data: {
+          cancellationReason: "",
+        },
+        didForceRefresh: false,
+        authMode: "public",
+      });
+      throw error;
+    }
+  }
+
   await requestCalApi({
     userId,
     method: "POST",
