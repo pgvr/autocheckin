@@ -13,7 +13,7 @@ import { inngest } from "./inngest/client";
 const CAL_API_V2_BASE_URL = "https://api.cal.com/v2";
 const EVENT_TYPES_API_VERSION = "2024-06-14";
 const SLOTS_API_VERSION = "2024-09-04";
-const BOOKINGS_API_VERSION = "2024-08-13";
+const BOOKINGS_API_VERSION = "2026-02-25";
 const DEFAULT_ATTENDEE_TIMEZONE = "Europe/Berlin";
 const DEFAULT_ATTENDEE_LANGUAGE = "en";
 
@@ -57,6 +57,7 @@ const captureCalApiError = ({
   params,
   data,
   didForceRefresh,
+  authMode,
 }: {
   error: unknown;
   method: Method;
@@ -65,22 +66,30 @@ const captureCalApiError = ({
   params?: Record<string, unknown>;
   data?: unknown;
   didForceRefresh: boolean;
+  authMode: "public" | "oauth";
 }) => {
   if (!axios.isAxiosError(error)) {
     return;
   }
 
+  const calResponseData: unknown = error.response?.data;
+
+  const extra = {
+    calMethod: method,
+    calUrl: url,
+    calApiVersion: apiVersion,
+    calStatus: error.response?.status,
+    calResponseData,
+    calParams: params,
+    calRequestData: sanitizeCalRequestData(data),
+    calDidForceRefresh: didForceRefresh,
+    calAuthMode: authMode,
+  };
+
+  console.error("[cal-api]", extra);
+
   captureException(error, {
-    extra: {
-      calMethod: method,
-      calUrl: url,
-      calApiVersion: apiVersion,
-      calStatus: error.response?.status,
-      calResponseData: error.response?.data,
-      calParams: params,
-      calRequestData: sanitizeCalRequestData(data),
-      calDidForceRefresh: didForceRefresh,
-    },
+    extra,
   });
 };
 
@@ -90,8 +99,14 @@ const successEnvelope = <TSchema extends z.ZodTypeAny>(data: TSchema) =>
     data,
   });
 
-const getHeaders = (accessToken: string, apiVersion?: string) => ({
-  Authorization: `Bearer ${accessToken}`,
+const getHeaders = ({
+  accessToken,
+  apiVersion,
+}: {
+  accessToken?: string;
+  apiVersion?: string;
+}) => ({
+  ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
   ...(apiVersion ? { "cal-api-version": apiVersion } : {}),
 });
 
@@ -99,6 +114,7 @@ const EventTypeSchema = z.object({
   id: z.number(),
   lengthInMinutes: z.number(),
   ownerId: z.number().optional(),
+  bookingRequiresAuthentication: z.boolean().optional().default(false),
   users: z
     .array(
       z.object({
@@ -136,6 +152,7 @@ type CalEventTypeInfo = {
   id: number;
   lengthInMinutes: number;
   ownerId: number;
+  bookingRequiresAuthentication: boolean;
   owner: {
     id: number;
     name: string;
@@ -157,6 +174,73 @@ const toScheduledBooking = (booking: z.infer<typeof BookingSchema>) => ({
   endTime: booking.end,
 });
 
+const executeCalApiRequest = async <TOutput>({
+  method,
+  url,
+  apiVersion,
+  params,
+  data,
+  schema,
+  accessToken,
+}: {
+  method: Method;
+  url: string;
+  apiVersion?: string;
+  params?: Record<string, unknown>;
+  data?: unknown;
+  schema: z.ZodType<TOutput>;
+  accessToken?: string;
+}): Promise<TOutput> => {
+  const response = await calApi.request<unknown>({
+    method,
+    url,
+    params,
+    data,
+    headers: getHeaders({ accessToken, apiVersion }),
+  });
+
+  return schema.parse(response.data);
+};
+
+const requestPublicCalApi = async <TOutput>({
+  method,
+  url,
+  apiVersion,
+  params,
+  data,
+  schema,
+}: {
+  method: Method;
+  url: string;
+  apiVersion?: string;
+  params?: Record<string, unknown>;
+  data?: unknown;
+  schema: z.ZodType<TOutput>;
+}): Promise<TOutput> => {
+  try {
+    return await executeCalApiRequest({
+      method,
+      url,
+      apiVersion,
+      params,
+      data,
+      schema,
+    });
+  } catch (error) {
+    captureCalApiError({
+      error,
+      method,
+      url,
+      apiVersion,
+      params,
+      data,
+      didForceRefresh: false,
+      authMode: "public",
+    });
+    throw error;
+  }
+};
+
 const requestCalApi = async <TOutput>({
   userId,
   method,
@@ -174,22 +258,18 @@ const requestCalApi = async <TOutput>({
   data?: unknown;
   schema: z.ZodType<TOutput>;
 }): Promise<TOutput> => {
-  const execute = async (accessToken: string) => {
-    const response = await calApi.request<unknown>({
-      method,
-      url,
-      params,
-      data,
-      headers: getHeaders(accessToken, apiVersion),
-    });
-
-    return schema.parse(response.data);
-  };
-
   let accessToken = await getValidAccessToken(userId);
 
   try {
-    return await execute(accessToken);
+    return await executeCalApiRequest({
+      method,
+      url,
+      apiVersion,
+      params,
+      data,
+      schema,
+      accessToken,
+    });
   } catch (error) {
     if (!axios.isAxiosError(error) || error.response?.status !== 401) {
       captureCalApiError({
@@ -200,6 +280,7 @@ const requestCalApi = async <TOutput>({
         params,
         data,
         didForceRefresh: false,
+        authMode: "oauth",
       });
       throw error;
     }
@@ -207,7 +288,15 @@ const requestCalApi = async <TOutput>({
     accessToken = await getValidAccessToken(userId, { forceRefresh: true });
 
     try {
-      return await execute(accessToken);
+      return await executeCalApiRequest({
+        method,
+        url,
+        apiVersion,
+        params,
+        data,
+        schema,
+        accessToken,
+      });
     } catch (retryError) {
       captureCalApiError({
         error: retryError,
@@ -217,10 +306,28 @@ const requestCalApi = async <TOutput>({
         params,
         data,
         didForceRefresh: true,
+        authMode: "oauth",
       });
       throw retryError;
     }
   }
+};
+
+const toCalEventTypeInfo = (
+  eventType: z.infer<typeof EventTypeSchema>,
+): CalEventTypeInfo | null => {
+  const [owner] = eventType.users;
+  if (!owner) {
+    return null;
+  }
+
+  return {
+    id: eventType.id,
+    lengthInMinutes: eventType.lengthInMinutes,
+    ownerId: eventType.ownerId ?? owner.id,
+    bookingRequiresAuthentication: eventType.bookingRequiresAuthentication,
+    owner,
+  };
 };
 
 export async function getEventTypeInfo({
@@ -232,34 +339,44 @@ export async function getEventTypeInfo({
   username: string;
   eventSlug: string;
 }): Promise<CalEventTypeInfo | null> {
+  const params = {
+    username,
+    eventSlug,
+  };
+
+  try {
+    const parsedResponse = await requestPublicCalApi({
+      method: "GET",
+      url: "/event-types",
+      apiVersion: EVENT_TYPES_API_VERSION,
+      params,
+      schema: EventTypesResponseSchema,
+    });
+
+    const [eventType] = parsedResponse.data;
+    if (eventType) {
+      return toCalEventTypeInfo(eventType);
+    }
+  } catch (error) {
+    if (
+      !axios.isAxiosError(error) ||
+      (error.response?.status !== 401 && error.response?.status !== 403)
+    ) {
+      throw error;
+    }
+  }
+
   const parsedResponse = await requestCalApi({
     userId,
     method: "GET",
     url: "/event-types",
     apiVersion: EVENT_TYPES_API_VERSION,
-    params: {
-      username,
-      eventSlug,
-    },
+    params,
     schema: EventTypesResponseSchema,
   });
 
   const [eventType] = parsedResponse.data;
-  if (!eventType) {
-    return null;
-  }
-
-  const [owner] = eventType.users;
-  if (!owner) {
-    return null;
-  }
-
-  return {
-    id: eventType.id,
-    lengthInMinutes: eventType.lengthInMinutes,
-    ownerId: eventType.ownerId ?? owner.id,
-    owner,
-  };
+  return eventType ? toCalEventTypeInfo(eventType) : null;
 }
 
 export async function getSlots({

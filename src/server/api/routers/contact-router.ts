@@ -191,7 +191,16 @@ export const contactRouter = createTRPCRouter({
         eventSlug: typeWithoutParams,
         eventTypeId: info.id,
         ownerId: info.ownerId,
+        bookingRequiresAuthentication: info.bookingRequiresAuthentication,
       });
+
+      if (info.bookingRequiresAuthentication) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This Cal.com event requires attendee authentication and cannot be used for automatic check-ins.",
+        });
+      }
 
       const contact = await ctx.db.contact.create({
         data: {
