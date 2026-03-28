@@ -118,12 +118,13 @@ export default function SettingsPage() {
                       Connected and ready for scheduling.
                     </div>
                   </CardContent>
-                  <CardFooter className="flex flex-col items-start gap-4 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-muted-foreground">
+                  <CardFooter className="flex flex-col items-start gap-4 border-t pt-6 sm:grid sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                    <p className="max-w-prose text-sm text-muted-foreground">
                       Disconnecting removes Autocheckin&apos;s access but does
                       not cancel meetings already booked in Cal.com.
                     </p>
                     <Button
+                      className="shrink-0"
                       variant="destructive"
                       isLoading={disconnectCalMutation.isPending}
                       onClick={() => {

@@ -167,12 +167,61 @@ type ScheduledBooking = {
   endTime: string;
 };
 
+type PublicCalSchedulingTarget =
+  | {
+      eventTypeSlug: string;
+      username: string;
+    }
+  | {
+      eventTypeSlug: string;
+      teamSlug: string;
+      organizationSlug?: string;
+    };
+
 const toScheduledBooking = (booking: z.infer<typeof BookingSchema>) => ({
   id: booking.id,
   uid: booking.uid,
   startTime: booking.start,
   endTime: booking.end,
 });
+
+const parsePublicCalSchedulingTarget = (
+  calLink: string,
+): PublicCalSchedulingTarget | null => {
+  try {
+    const url = new URL(calLink);
+    const segments = url.pathname.split("/").filter(Boolean);
+
+    if (segments.length === 2) {
+      const [username, eventTypeSlug] = segments;
+      if (!username || !eventTypeSlug) {
+        return null;
+      }
+
+      return {
+        username,
+        eventTypeSlug,
+      };
+    }
+
+    if (segments.length === 3) {
+      const [organizationSlug, teamSlug, eventTypeSlug] = segments;
+      if (!teamSlug || !eventTypeSlug) {
+        return null;
+      }
+
+      return {
+        organizationSlug,
+        teamSlug,
+        eventTypeSlug,
+      };
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+};
 
 const executeCalApiRequest = async <TOutput>({
   method,
@@ -395,12 +444,45 @@ export async function getSlots({
   start,
   end,
   eventTypeId,
+  publicTarget,
 }: {
   userId: string;
   start: string;
   end: string;
   eventTypeId: number;
+  publicTarget?: PublicCalSchedulingTarget | null;
 }): Promise<z.infer<typeof SlotsResponseSchema>["data"]> {
+  if (publicTarget) {
+    try {
+      const parsedResponse = await requestPublicCalApi({
+        method: "GET",
+        url: "/slots",
+        apiVersion: SLOTS_API_VERSION,
+        params: {
+          start,
+          end,
+          eventTypeSlug: publicTarget.eventTypeSlug,
+          ...("username" in publicTarget
+            ? { username: publicTarget.username }
+            : {
+                teamSlug: publicTarget.teamSlug,
+                organizationSlug: publicTarget.organizationSlug,
+              }),
+        },
+        schema: SlotsResponseSchema,
+      });
+
+      return parsedResponse.data;
+    } catch (error) {
+      if (
+        !axios.isAxiosError(error) ||
+        (error.response?.status !== 401 && error.response?.status !== 403)
+      ) {
+        throw error;
+      }
+    }
+  }
+
   const parsedResponse = await requestCalApi({
     userId,
     method: "GET",
@@ -421,15 +503,56 @@ export async function makeBooking({
   userId,
   start,
   eventTypeId,
+  publicTarget,
   userName,
   userEmail,
 }: {
   userId: string;
   start: string;
   eventTypeId: number;
+  publicTarget?: PublicCalSchedulingTarget | null;
   userName: string;
   userEmail: string;
 }): Promise<ScheduledBooking> {
+  if (publicTarget) {
+    try {
+      const parsedResponse = await requestPublicCalApi({
+        method: "POST",
+        url: "/bookings",
+        apiVersion: BOOKINGS_API_VERSION,
+        data: {
+          start,
+          eventTypeSlug: publicTarget.eventTypeSlug,
+          ...("username" in publicTarget
+            ? { username: publicTarget.username }
+            : {
+                teamSlug: publicTarget.teamSlug,
+                organizationSlug: publicTarget.organizationSlug,
+              }),
+          attendee: {
+            name: userName,
+            email: userEmail,
+            timeZone: DEFAULT_ATTENDEE_TIMEZONE,
+            language: DEFAULT_ATTENDEE_LANGUAGE,
+          },
+          metadata: {
+            checkin: "true",
+          },
+        },
+        schema: BookingResponseSchema,
+      });
+
+      return toScheduledBooking(parsedResponse.data);
+    } catch (error) {
+      if (
+        !axios.isAxiosError(error) ||
+        (error.response?.status !== 401 && error.response?.status !== 403)
+      ) {
+        throw error;
+      }
+    }
+  }
+
   const parsedResponse = await requestCalApi({
     userId,
     method: "POST",
@@ -458,6 +581,7 @@ export async function scheduleNextBooking({
   frequency,
   userId,
   eventTypeId,
+  calLink,
   userEmail,
   userName,
   contactId,
@@ -465,10 +589,12 @@ export async function scheduleNextBooking({
   frequency: CheckInFrequency;
   userId: string;
   eventTypeId: number;
+  calLink: string;
   contactId: string;
   userName: string;
   userEmail: string;
 }): Promise<ScheduledBooking | undefined> {
+  const publicTarget = parsePublicCalSchedulingTarget(calLink);
   const now = new Date();
   let start: string | undefined;
   let end: string | undefined;
@@ -510,6 +636,7 @@ export async function scheduleNextBooking({
   const slots = await getSlots({
     userId,
     eventTypeId,
+    publicTarget,
     start,
     end,
   });
@@ -540,6 +667,7 @@ export async function scheduleNextBooking({
     userName,
     userEmail,
     eventTypeId,
+    publicTarget,
     start: slotToBook.start,
   });
 

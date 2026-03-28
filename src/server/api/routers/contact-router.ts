@@ -241,6 +241,7 @@ export const contactRouter = createTRPCRouter({
           userName: ctx.session.user.name ?? ctx.session.user.email ?? "",
           userEmail: ctx.session.user.email ?? "",
           eventTypeId: info.id,
+          calLink: formattedLink,
           frequency: input.checkInFrequency,
           contactId: contact.id,
         });
@@ -395,6 +396,7 @@ export const contactRouter = createTRPCRouter({
         select: {
           id: true,
           eventTypeId: true,
+          calLink: true,
           checkInFrequency: true,
         },
       });
@@ -434,6 +436,7 @@ export const contactRouter = createTRPCRouter({
           userName: ctx.session.user.name ?? ctx.session.user.email ?? "",
           userEmail: ctx.session.user.email ?? "",
           eventTypeId: contact.eventTypeId,
+          calLink: contact.calLink,
           frequency: contact.checkInFrequency,
         });
 

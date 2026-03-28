@@ -80,6 +80,7 @@ export const reseedUserSchedulesFunction = inngest.createFunction(
             frequency: contact.checkInFrequency,
             userId: user.id,
             eventTypeId: contact.eventTypeId,
+            calLink: contact.calLink,
             userEmail: user.email ?? "",
             userName: user.name ?? user.email ?? "",
           });
