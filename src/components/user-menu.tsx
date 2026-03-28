@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
-import { LogOut, MessageCircleHeart, ScrollText } from "lucide-react";
+import { LogOut, MessageCircleHeart, ScrollText, Settings } from "lucide-react";
 
 export function UserNav() {
   const { data } = useSession();
@@ -55,6 +55,17 @@ export function UserNav() {
           >
             <DropdownMenuItem Icon={ScrollText}>Changelog</DropdownMenuItem>
           </a>
+        </DropdownMenuGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            Icon={Settings}
+            onClick={() => {
+              void router.push("/settings");
+            }}
+          >
+            Settings
+          </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>

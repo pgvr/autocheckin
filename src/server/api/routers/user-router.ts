@@ -1,3 +1,5 @@
+import { deleteCalConnection } from "~/server/lib/cal-oauth";
+import { inngest } from "~/server/lib/inngest/client";
 import { createTRPCRouter, protectedProcedure } from "~/server/api/trpc";
 
 export const userRouter = createTRPCRouter({
@@ -23,6 +25,34 @@ export const userRouter = createTRPCRouter({
             avatarUrl: user.calConnection.calAvatarUrl,
           }
         : undefined,
+    };
+  }),
+
+  disconnectCal: protectedProcedure.mutation(async ({ ctx }) => {
+    const contacts = await ctx.db.contact.findMany({
+      where: {
+        userId: ctx.session.user.id,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    await Promise.all(
+      contacts.map(async (contact) => {
+        await inngest.send({
+          name: "cancel-schedule-meeting",
+          data: {
+            contactId: contact.id,
+          },
+        });
+      }),
+    );
+
+    await deleteCalConnection(ctx.session.user.id);
+
+    return {
+      success: true,
     };
   }),
 });

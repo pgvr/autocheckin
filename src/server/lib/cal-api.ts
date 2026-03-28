@@ -314,7 +314,17 @@ const requestCalApi = async <TOutput>({
 };
 
 const toCalEventTypeInfo = (
-  eventType: z.infer<typeof EventTypeSchema>,
+  eventType: {
+    id: number;
+    lengthInMinutes: number;
+    ownerId?: number;
+    bookingRequiresAuthentication?: boolean;
+    users: Array<{
+      id: number;
+      name: string;
+      avatarUrl?: string | null;
+    }>;
+  },
 ): CalEventTypeInfo | null => {
   const [owner] = eventType.users;
   if (!owner) {
@@ -325,7 +335,8 @@ const toCalEventTypeInfo = (
     id: eventType.id,
     lengthInMinutes: eventType.lengthInMinutes,
     ownerId: eventType.ownerId ?? owner.id,
-    bookingRequiresAuthentication: eventType.bookingRequiresAuthentication,
+    bookingRequiresAuthentication:
+      eventType.bookingRequiresAuthentication ?? false,
     owner,
   };
 };

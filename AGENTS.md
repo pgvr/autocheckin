@@ -29,7 +29,7 @@ This is a Pages Router app, not an App Router app.
 ## Repo Layout
 
 - `src/pages`
-  Next.js routes. Important pages are `/`, `/login`, `/home`, and `/logout`.
+  Next.js routes. Important pages are `/`, `/login`, `/home`, `/settings`, and `/logout`.
 - `src/pages/api/trpc/[trpc].ts`
   tRPC entrypoint. Errors are logged and forwarded to Sentry.
 - `src/pages/api/auth/[...nextauth].ts`
@@ -43,7 +43,7 @@ This is a Pages Router app, not an App Router app.
 - `src/server/api/routers/contact-router.ts`
   Main business logic for listing, creating, updating, and deleting contacts.
 - `src/server/api/routers/user-router.ts`
-  Reads the user Cal.com connection state for the dashboard.
+  Reads the user Cal.com connection state and handles Cal.com disconnects.
 - `src/server/lib/cal-oauth.ts`
   Cal.com OAuth URL building, token exchange/refresh, encrypted token storage, and connection state cookies.
 - `src/server/lib/cal-api.ts`
@@ -158,8 +158,10 @@ There is no test suite configured in this repo right now. In practice, verificat
 ## UI Notes
 
 - The dashboard is `src/pages/home.tsx`.
+- Account settings are managed on `src/pages/settings.tsx`.
 - Contact forms use desktop `Dialog` and mobile `Drawer` variants.
 - The dashboard now shows Cal OAuth connection state and routes reconnects through `/api/cal/oauth/start`.
+- Cal.com disconnects are handled from Settings, accessed via the avatar dropdown.
 - Shared UI primitives are under `src/components/ui`.
 - Tailwind theme tokens live in `src/styles/globals.css` and `tailwind.config.ts`.
 - Fonts are wired in `_app.tsx` via Next font loaders and exposed as CSS variables.

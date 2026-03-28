@@ -159,13 +159,10 @@ export default function Home() {
                   </div>
                 </div>
                 <Link
-                  href="/api/cal/oauth/start"
-                  className={buttonVariants({
-                    variant: "outline",
-                    className: "inline-flex",
-                  })}
+                  href="/settings"
+                  className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                 >
-                  Reconnect Cal.com
+                  Manage connection in Settings
                 </Link>
               </CardContent>
             </Card>
